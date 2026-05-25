@@ -159,6 +159,11 @@ enum Job {
     Err(String),
 }
 
+enum PendingSource {
+    Path(PathBuf),
+    Bytes(Vec<u8>, String),
+}
+
 #[derive(Default)]
 struct App {
     preview_tex: Option<TextureHandle>,
@@ -172,6 +177,7 @@ struct App {
     error: Option<String>,
     copied_hex: Option<(String, f64)>,
     rx: Option<mpsc::Receiver<Job>>,
+    pending: Option<PendingSource>,
 }
 
 impl Default for ThemeChoice {
@@ -181,38 +187,61 @@ impl Default for ThemeChoice {
 }
 
 impl App {
-    fn start_extract_from_path(&mut self, ctx: &egui::Context, path: PathBuf) {
-        let theme = self.theme;
-        let algorithm = self.algorithm;
-        let downsample = self.downsample;
-        let max = self.max_swatches.max(1);
-        self.busy = true;
-        self.error = None;
-        let (tx, rx) = mpsc::channel();
-        self.rx = Some(rx);
-        let ctx_clone = ctx.clone();
-        thread::spawn(move || {
-            let res = extract_from_path(&path, theme, algorithm, downsample, max);
-            let _ = tx.send(match res {
-                Ok(r) => Job::Done(r),
-                Err(e) => Job::Err(e),
-            });
-            ctx_clone.request_repaint();
-        });
+    fn load_preview_from_path(&mut self, ctx: &egui::Context, path: PathBuf) {
+        match image::open(&path) {
+            Ok(img) => {
+                let preview = to_color_image(&img);
+                self.preview_tex =
+                    Some(ctx.load_texture("preview", preview, TextureOptions::LINEAR));
+                self.source_label = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "image".into());
+                self.swatches.clear();
+                self.error = None;
+                self.pending = Some(PendingSource::Path(path));
+            }
+            Err(e) => self.error = Some(format!("Failed to open image: {e}")),
+        }
     }
 
-    fn start_extract_from_bytes(&mut self, ctx: &egui::Context, bytes: Vec<u8>, name: String) {
+    fn load_preview_from_bytes(&mut self, ctx: &egui::Context, bytes: Vec<u8>, name: String) {
+        match image::load_from_memory(&bytes) {
+            Ok(img) => {
+                let preview = to_color_image(&img);
+                self.preview_tex =
+                    Some(ctx.load_texture("preview", preview, TextureOptions::LINEAR));
+                self.source_label = if name.is_empty() { "dropped image".into() } else { name.clone() };
+                self.swatches.clear();
+                self.error = None;
+                self.pending = Some(PendingSource::Bytes(bytes, name));
+            }
+            Err(e) => self.error = Some(format!("Decode failed: {e}")),
+        }
+    }
+
+    fn start_extract(&mut self, ctx: &egui::Context) {
+        let Some(src) = self.pending.as_ref() else { return };
         let theme = self.theme;
         let algorithm = self.algorithm;
         let downsample = self.downsample;
         let max = self.max_swatches.max(1);
+        let job_src = match src {
+            PendingSource::Path(p) => PendingSource::Path(p.clone()),
+            PendingSource::Bytes(b, n) => PendingSource::Bytes(b.clone(), n.clone()),
+        };
         self.busy = true;
         self.error = None;
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
         let ctx_clone = ctx.clone();
         thread::spawn(move || {
-            let res = extract_from_bytes(&bytes, name, theme, algorithm, downsample, max);
+            let res = match job_src {
+                PendingSource::Path(p) => extract_from_path(&p, theme, algorithm, downsample, max),
+                PendingSource::Bytes(b, n) => {
+                    extract_from_bytes(&b, n, theme, algorithm, downsample, max)
+                }
+            };
             let _ = tx.send(match res {
                 Ok(r) => Job::Done(r),
                 Err(e) => Job::Err(e),
@@ -374,9 +403,9 @@ impl eframe::App for App {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if let Some(file) = dropped.into_iter().next() {
             if let Some(path) = file.path {
-                self.start_extract_from_path(ctx, path);
+                self.load_preview_from_path(ctx, path);
             } else if let Some(bytes) = file.bytes {
-                self.start_extract_from_bytes(ctx, bytes.to_vec(), file.name);
+                self.load_preview_from_bytes(ctx, bytes.to_vec(), file.name);
             }
         }
 
@@ -384,20 +413,38 @@ impl eframe::App for App {
         let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            ui.add_space(2.0);
+            // Row 1: title, open, source label, run button, spinner
             ui.horizontal(|ui| {
-                ui.heading("any-palette");
+                ui.strong("any-palette");
                 ui.separator();
-                if ui.button("Open image…").clicked() {
+                if ui.small_button("Open…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"])
                         .pick_file()
                     {
-                        self.start_extract_from_path(ctx, path);
+                        self.load_preview_from_path(ctx, path);
                     }
                 }
-                ui.separator();
-                ui.label("Theme:");
+                let can_run = self.pending.is_some() && !self.busy;
+                let run_label = if self.swatches.is_empty() { "Extract" } else { "Re-extract" };
+                if ui.add_enabled(can_run, egui::Button::new(run_label).small()).clicked() {
+                    self.start_extract(ctx);
+                }
+                if self.busy {
+                    ui.spinner();
+                    ui.small("Extracting…");
+                }
+                if !self.source_label.is_empty() {
+                    ui.separator();
+                    ui.weak(&self.source_label);
+                }
+            });
+            // Row 2: settings
+            ui.horizontal(|ui| {
+                ui.small("Theme");
                 egui::ComboBox::from_id_salt("theme")
+                    .width(90.0)
                     .selected_text(self.theme.label())
                     .show_ui(ui, |ui| {
                         for t in ThemeChoice::ALL {
@@ -405,8 +452,9 @@ impl eframe::App for App {
                         }
                     });
                 ui.separator();
-                ui.label("Algorithm:");
+                ui.small("Algorithm");
                 egui::ComboBox::from_id_salt("algorithm")
+                    .width(150.0)
                     .selected_text(self.algorithm.label())
                     .show_ui(ui, |ui| {
                         for a in AlgorithmChoice::ALL {
@@ -414,8 +462,9 @@ impl eframe::App for App {
                         }
                     });
                 ui.separator();
-                ui.label("Downsample:");
+                ui.small("Downsample");
                 egui::ComboBox::from_id_salt("downsample")
+                    .width(110.0)
                     .selected_text(self.downsample.label())
                     .show_ui(ui, |ui| {
                         for d in Downsample::ALL {
@@ -423,23 +472,10 @@ impl eframe::App for App {
                         }
                     });
                 ui.separator();
-                ui.label("Swatches:");
+                ui.small("Swatches");
                 ui.add(egui::DragValue::new(&mut self.max_swatches).range(1..=32));
-                if ui.button("Re-extract").clicked() && !self.busy {
-                    if let Some(tex) = &self.preview_tex {
-                        let _ = tex;
-                    }
-                }
-                if self.busy {
-                    ui.separator();
-                    ui.spinner();
-                    ui.label("Extracting…");
-                }
-                if !self.source_label.is_empty() {
-                    ui.separator();
-                    ui.weak(&self.source_label);
-                }
             });
+            ui.add_space(2.0);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
