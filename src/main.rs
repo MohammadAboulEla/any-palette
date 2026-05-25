@@ -12,8 +12,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         centered: true,
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 680.0])
-            .with_min_inner_size([720.0, 520.0])
+            .with_inner_size([800.0, 600.0])
             .with_title("any-palette"),
         ..Default::default()
     };
@@ -22,6 +21,14 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            cc.egui_ctx.style_mut(|s| {
+                use egui::{FontFamily::Proportional, FontId, TextStyle::*};
+                s.text_styles.insert(Heading, FontId::new(22.0, Proportional));
+                s.text_styles.insert(Body, FontId::new(16.0, Proportional));
+                s.text_styles.insert(Button, FontId::new(16.0, Proportional));
+                s.text_styles.insert(Small, FontId::new(13.0, Proportional));
+                s.text_styles.insert(Monospace, FontId::new(15.0, egui::FontFamily::Monospace));
+            });
             Ok(Box::new(App::default()))
         }),
     )
@@ -413,12 +420,15 @@ impl eframe::App for App {
         let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.add_space(2.0);
+            ui.spacing_mut().interact_size.y = 28.0;
+            ui.spacing_mut().button_padding = egui::vec2(8.0, 5.0);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.add_space(4.0);
             // Row 1: title, open, source label, run button, spinner
             ui.horizontal(|ui| {
                 ui.strong("any-palette");
                 ui.separator();
-                if ui.small_button("Open…").clicked() {
+                if ui.button("Open…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"])
                         .pick_file()
@@ -428,7 +438,7 @@ impl eframe::App for App {
                 }
                 let can_run = self.pending.is_some() && !self.busy;
                 let run_label = if self.swatches.is_empty() { "Extract" } else { "Re-extract" };
-                if ui.add_enabled(can_run, egui::Button::new(run_label).small()).clicked() {
+                if ui.add_enabled(can_run, egui::Button::new(run_label)).clicked() {
                     self.start_extract(ctx);
                 }
                 if self.busy {
@@ -440,6 +450,7 @@ impl eframe::App for App {
                     ui.weak(&self.source_label);
                 }
             });
+            ui.add_space(4.0);
             // Row 2: settings
             ui.horizontal(|ui| {
                 ui.small("Theme");
@@ -475,7 +486,7 @@ impl eframe::App for App {
                 ui.small("Swatches");
                 ui.add(egui::DragValue::new(&mut self.max_swatches).range(1..=32));
             });
-            ui.add_space(2.0);
+            ui.add_space(4.0);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -556,7 +567,8 @@ impl eframe::App for App {
                 .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.label(format!("Copied {hex}"));
+                        ui.set_min_width(160.0);
+                        ui.add(egui::Label::new(format!("Copied {hex}")).wrap_mode(egui::TextWrapMode::Extend));
                     });
                 });
             ctx.request_repaint();
