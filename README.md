@@ -1,5 +1,7 @@
 # any-palette
 
+![any-palette screenshot](assets/app.webp)
+
 A small desktop app that extracts color swatches from an image. Open or drag-drop a picture, tweak the algorithm and theme, hit **Extract**, and copy each swatch as `#RRGGBB`.
 
 Built with [egui](https://github.com/emilk/egui) / eframe and the [`auto-palette`](https://crates.io/crates/auto-palette) crate.
