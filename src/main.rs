@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
-use auto_palette::{ImageData, Palette, Theme};
+use auto_palette::{Algorithm, ImageData, Palette, Theme};
 use eframe::egui;
 use egui::{Color32, ColorImage, TextureHandle, TextureOptions};
 
@@ -68,6 +68,80 @@ impl ThemeChoice {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AlgorithmChoice {
+    DBSCANpp,
+    DBSCAN,
+    KMeans,
+}
+
+impl AlgorithmChoice {
+    const ALL: [AlgorithmChoice; 3] = [
+        AlgorithmChoice::DBSCANpp,
+        AlgorithmChoice::DBSCAN,
+        AlgorithmChoice::KMeans,
+    ];
+    fn label(self) -> &'static str {
+        match self {
+            AlgorithmChoice::DBSCANpp => "DBSCAN++ (fast)",
+            AlgorithmChoice::DBSCAN => "DBSCAN (accurate)",
+            AlgorithmChoice::KMeans => "K-Means (fastest)",
+        }
+    }
+    fn as_algorithm(self) -> Algorithm {
+        match self {
+            AlgorithmChoice::DBSCANpp => Algorithm::DBSCANpp,
+            AlgorithmChoice::DBSCAN => Algorithm::DBSCAN,
+            AlgorithmChoice::KMeans => Algorithm::KMeans,
+        }
+    }
+}
+
+impl Default for AlgorithmChoice {
+    fn default() -> Self {
+        AlgorithmChoice::DBSCANpp
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Downsample {
+    Off,
+    Px1024,
+    Px1600,
+    Px2048,
+}
+
+impl Downsample {
+    const ALL: [Downsample; 4] = [
+        Downsample::Px1024,
+        Downsample::Px1600,
+        Downsample::Px2048,
+        Downsample::Off,
+    ];
+    fn label(self) -> &'static str {
+        match self {
+            Downsample::Off => "Off (full res)",
+            Downsample::Px1024 => "1024px",
+            Downsample::Px1600 => "1600px",
+            Downsample::Px2048 => "2048px",
+        }
+    }
+    fn max_edge(self) -> Option<u32> {
+        match self {
+            Downsample::Off => None,
+            Downsample::Px1024 => Some(1024),
+            Downsample::Px1600 => Some(1600),
+            Downsample::Px2048 => Some(2048),
+        }
+    }
+}
+
+impl Default for Downsample {
+    fn default() -> Self {
+        Downsample::Px1600
+    }
+}
+
 struct Swatch {
     hex: String,
     color: Color32,
@@ -91,6 +165,8 @@ struct App {
     source_label: String,
     swatches: Vec<Swatch>,
     theme: ThemeChoice,
+    algorithm: AlgorithmChoice,
+    downsample: Downsample,
     max_swatches: usize,
     busy: bool,
     error: Option<String>,
@@ -107,6 +183,8 @@ impl Default for ThemeChoice {
 impl App {
     fn start_extract_from_path(&mut self, ctx: &egui::Context, path: PathBuf) {
         let theme = self.theme;
+        let algorithm = self.algorithm;
+        let downsample = self.downsample;
         let max = self.max_swatches.max(1);
         self.busy = true;
         self.error = None;
@@ -114,7 +192,7 @@ impl App {
         self.rx = Some(rx);
         let ctx_clone = ctx.clone();
         thread::spawn(move || {
-            let res = extract_from_path(&path, theme, max);
+            let res = extract_from_path(&path, theme, algorithm, downsample, max);
             let _ = tx.send(match res {
                 Ok(r) => Job::Done(r),
                 Err(e) => Job::Err(e),
@@ -125,6 +203,8 @@ impl App {
 
     fn start_extract_from_bytes(&mut self, ctx: &egui::Context, bytes: Vec<u8>, name: String) {
         let theme = self.theme;
+        let algorithm = self.algorithm;
+        let downsample = self.downsample;
         let max = self.max_swatches.max(1);
         self.busy = true;
         self.error = None;
@@ -132,7 +212,7 @@ impl App {
         self.rx = Some(rx);
         let ctx_clone = ctx.clone();
         thread::spawn(move || {
-            let res = extract_from_bytes(&bytes, name, theme, max);
+            let res = extract_from_bytes(&bytes, name, theme, algorithm, downsample, max);
             let _ = tx.send(match res {
                 Ok(r) => Job::Done(r),
                 Err(e) => Job::Err(e),
@@ -177,13 +257,13 @@ impl App {
 fn extract_from_path(
     path: &std::path::Path,
     theme: ThemeChoice,
+    algorithm: AlgorithmChoice,
+    downsample: Downsample,
     max: usize,
 ) -> Result<ExtractResult, String> {
     let img = image::open(path).map_err(|e| format!("Failed to open image: {e}"))?;
     let preview = to_color_image(&img);
-    let image_data =
-        ImageData::load(path).map_err(|e| format!("auto-palette load failed: {e:?}"))?;
-    let swatches = run_palette(&image_data, theme, max)?;
+    let swatches = extract_from_dynamic(&img, theme, algorithm, downsample, max)?;
     Ok(ExtractResult {
         source_path: Some(path.to_path_buf()),
         preview,
@@ -195,15 +275,13 @@ fn extract_from_bytes(
     bytes: &[u8],
     _name: String,
     theme: ThemeChoice,
+    algorithm: AlgorithmChoice,
+    downsample: Downsample,
     max: usize,
 ) -> Result<ExtractResult, String> {
     let img = image::load_from_memory(bytes).map_err(|e| format!("Decode failed: {e}"))?;
     let preview = to_color_image(&img);
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    let image_data = ImageData::new(w, h, rgba.as_raw())
-        .map_err(|e| format!("auto-palette ImageData failed: {e:?}"))?;
-    let swatches = run_palette(&image_data, theme, max)?;
+    let swatches = extract_from_dynamic(&img, theme, algorithm, downsample, max)?;
     Ok(ExtractResult {
         source_path: None,
         preview,
@@ -211,13 +289,38 @@ fn extract_from_bytes(
     })
 }
 
+fn extract_from_dynamic(
+    img: &image::DynamicImage,
+    theme: ThemeChoice,
+    algorithm: AlgorithmChoice,
+    downsample: Downsample,
+    max: usize,
+) -> Result<Vec<Swatch>, String> {
+    let (w, h) = (img.width(), img.height());
+    let scaled = match downsample.max_edge() {
+        Some(limit) if w.max(h) > limit => {
+            let scale = limit as f32 / w.max(h) as f32;
+            img.thumbnail((w as f32 * scale) as u32, (h as f32 * scale) as u32)
+        }
+        _ => img.clone(),
+    };
+    let rgba = scaled.to_rgba8();
+    let (sw, sh) = rgba.dimensions();
+    let image_data = ImageData::new(sw, sh, rgba.as_raw())
+        .map_err(|e| format!("auto-palette ImageData failed: {e:?}"))?;
+    run_palette(&image_data, theme, algorithm, max)
+}
+
 fn run_palette(
     image_data: &ImageData,
     theme: ThemeChoice,
+    algorithm: AlgorithmChoice,
     max: usize,
 ) -> Result<Vec<Swatch>, String> {
-    let palette: Palette<f64> =
-        Palette::extract(image_data).map_err(|e| format!("Palette::extract failed: {e:?}"))?;
+    let palette: Palette<f64> = Palette::builder()
+        .algorithm(algorithm.as_algorithm())
+        .build(image_data)
+        .map_err(|e| format!("Palette build failed: {e:?}"))?;
     let raw = match theme.as_theme() {
         None => palette
             .find_swatches(max)
@@ -299,6 +402,24 @@ impl eframe::App for App {
                     .show_ui(ui, |ui| {
                         for t in ThemeChoice::ALL {
                             ui.selectable_value(&mut self.theme, t, t.label());
+                        }
+                    });
+                ui.separator();
+                ui.label("Algorithm:");
+                egui::ComboBox::from_id_salt("algorithm")
+                    .selected_text(self.algorithm.label())
+                    .show_ui(ui, |ui| {
+                        for a in AlgorithmChoice::ALL {
+                            ui.selectable_value(&mut self.algorithm, a, a.label());
+                        }
+                    });
+                ui.separator();
+                ui.label("Downsample:");
+                egui::ComboBox::from_id_salt("downsample")
+                    .selected_text(self.downsample.label())
+                    .show_ui(ui, |ui| {
+                        for d in Downsample::ALL {
+                            ui.selectable_value(&mut self.downsample, d, d.label());
                         }
                     });
                 ui.separator();
