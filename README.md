@@ -1,10 +1,11 @@
-# any-palette
-
-Built on top of [auto-palette](https://github.com/t28hub/auto-palette) for the color extraction and [egui](https://github.com/emilk/egui) for the UI.
-
-![any-palette screenshot](assets/app.webp)
-
-A small desktop app that extracts color swatches from an image. Open or drag-drop a picture, tweak the algorithm and theme, hit **Extract**, and copy each swatch as `#RRGGBB`.
+<div align="center">
+  <img src="assets/icon.png" width="256" alt="any-palette screenshot">
+  <h1>any-palette</h1>
+  <p align="center">
+    <strong>Built on top of <a href="https://github.com/t28hub/auto-palette">auto-palette</a> for the color extraction and <a href="https://github.com/emilk/egui">egui</a> for the UI.</strong><br />
+    A small desktop app that extracts color swatches from an image. Open or drag-drop a picture, tweak the algorithm and theme, hit <b>Extract</b>, and copy each swatch as <code>#RRGGBB</code>.
+  </p>
+</div>
 
 ## Example
 
@@ -45,10 +46,6 @@ cargo run --release
 - If extraction feels slow, keep **Downsample** at 1600px or lower and use **DBSCAN++**.
 - Use **DBSCAN** when you need the most faithful palette and don't mind the wait.
 - **K-Means** is the fastest but less faithful to the image's actual color distribution.
-
-## License
-
-MIT
 
 ---
 
