@@ -6,7 +6,21 @@ Built on top of [auto-palette](https://github.com/t28hub/auto-palette) for the c
 
 A small desktop app that extracts color swatches from an image. Open or drag-drop a picture, tweak the algorithm and theme, hit **Extract**, and copy each swatch as `#RRGGBB`.
 
-Built with [egui](https://github.com/emilk/egui) / eframe and the [`auto-palette`](https://crates.io/crates/auto-palette) crate.
+## Example
+
+<img src="assets/laura-clugston-pwW2iV9TZao-unsplash.jpg" alt="Hot air balloon on blue sky" width="480">
+
+| Theme       | Color Palette                          |
+|-------------|----------------------------------------|
+| `(Default)` | ![Default](assets/palettes/default.png)   |
+| `Colorful`  | ![Colorful](assets/palettes/colorful.png) |
+| `Vivid`     | ![Vivid](assets/palettes/vivid.png)       |
+| `Muted`     | ![Muted](assets/palettes/muted.png)       |
+| `Light`     | ![Light](assets/palettes/light.png)       |
+| `Dark`      | ![Dark](assets/palettes/dark.png)         |
+
+> [!NOTE]
+> Photo by <a href="https://unsplash.com/@laurahclugston?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Laura Clugston</a> on <a href="https://unsplash.com/photos/multi-colored-hot-air-balloon-pwW2iV9TZao?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Unsplash</a>
 
 ## Features
 
