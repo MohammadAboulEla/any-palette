@@ -185,6 +185,7 @@ struct App {
     copied_hex: Option<(String, f64)>,
     rx: Option<mpsc::Receiver<Job>>,
     pending: Option<PendingSource>,
+    show_about: bool,
 }
 
 impl Default for ThemeChoice {
@@ -225,6 +226,11 @@ impl App {
             }
             Err(e) => self.error = Some(format!("Decode failed: {e}")),
         }
+    }
+
+    fn cancel_extract(&mut self) {
+        self.busy = false;
+        self.rx = None;
     }
 
     fn start_extract(&mut self, ctx: &egui::Context) {
@@ -427,6 +433,7 @@ impl eframe::App for App {
             // Row 1: title, open, source label, run button, spinner
             ui.horizontal(|ui| {
                 ui.strong("any-palette");
+                ui.weak(format!("v{}", env!("CARGO_PKG_VERSION")));
                 ui.separator();
                 if ui.button("Open…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
@@ -444,11 +451,15 @@ impl eframe::App for App {
                 if self.busy {
                     ui.spinner();
                     ui.small("Extracting…");
+                    if ui.button("Cancel").clicked() {
+                        self.cancel_extract();
+                    }
                 }
-                if !self.source_label.is_empty() {
-                    ui.separator();
-                    ui.weak(&self.source_label);
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("ℹ").clicked() {
+                        self.show_about = true;
+                    }
+                });
             });
             ui.add_space(4.0);
             // Row 2: settings
@@ -565,6 +576,52 @@ impl eframe::App for App {
                     });
                 });
             ctx.request_repaint();
+        }
+
+        if self.show_about {
+            let mut open = true;
+            egui::Window::new("About any-palette")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .default_width(380.0)
+                .show(ctx, |ui| {
+                    ui.heading("any-palette");
+                    ui.weak(format!("version {}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(8.0);
+                    ui.label(
+                        "A small desktop app that extracts color swatches from an image.\n\
+                         Open or drop a picture, pick an algorithm and theme, then copy \
+                         each swatch as #RRGGBB.",
+                    );
+                    ui.add_space(8.0);
+                    ui.label("Algorithms:");
+                    ui.label("  • DBSCAN++ — fast, default");
+                    ui.label("  • DBSCAN — accurate, slower");
+                    ui.label("  • K-Means — fastest, less faithful");
+                    ui.add_space(8.0);
+                    ui.label("Tip: lower the Downsample value for big images — extraction time scales with pixel count.");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Built with");
+                        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
+                        ui.label("and");
+                        ui.hyperlink_to("auto-palette", "https://crates.io/crates/auto-palette");
+                        ui.label(".");
+                    });
+                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| {
+                        ui.hyperlink_to("GitHub repository", "https://github.com/MohammadAboulEla/any-palette");
+                        ui.add_space(8.0);
+                        if ui.button("Close").clicked() {
+                            self.show_about = false;
+                        }
+                    });
+                });
+            if !open {
+                self.show_about = false;
+            }
         }
 
         if self.busy {
