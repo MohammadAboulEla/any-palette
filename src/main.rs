@@ -489,68 +489,61 @@ impl eframe::App for App {
             ui.add_space(4.0);
         });
 
+        egui::SidePanel::right("swatches_panel")
+            .resizable(true)
+            .default_width(300.0)
+            .min_width(220.0)
+            .max_width(420.0)
+            .show(ctx, |ui| {
+                ui.label("Swatches");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if self.swatches.is_empty() {
+                        ui.weak("No swatches yet.");
+                        return;
+                    }
+                    let swatches = std::mem::take(&mut self.swatches);
+                    for sw in &swatches {
+                        self.draw_swatch_row(ui, sw);
+                    }
+                    self.swatches = swatches;
+                });
+            });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(err) = &self.error {
                 ui.colored_label(Color32::LIGHT_RED, err);
                 ui.separator();
             }
 
-            ui.columns(2, |cols| {
-                // Left: preview / drop zone
-                cols[0].vertical(|ui| {
-                    ui.label("Image");
-                    let avail = ui.available_size();
-                    let (rect, _resp) =
-                        ui.allocate_exact_size(avail, egui::Sense::hover());
-                    let painter = ui.painter_at(rect);
-                    painter.rect_filled(rect, 6.0, Color32::from_gray(28));
-                    if let Some(tex) = &self.preview_tex {
-                        let img_size = tex.size_vec2();
-                        let scale =
-                            (rect.width() / img_size.x).min(rect.height() / img_size.y).min(1.0);
-                        let draw = img_size * scale;
-                        let center = rect.center();
-                        let r = egui::Rect::from_center_size(center, draw);
-                        painter.image(
-                            tex.id(),
-                            r,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            Color32::WHITE,
-                        );
-                    } else {
-                        painter.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Drop an image here or click \"Open image…\"",
-                            egui::FontId::proportional(18.0),
-                            Color32::from_gray(160),
-                        );
-                    }
-                    if hovering {
-                        painter.rect_stroke(
-                            rect,
-                            6.0,
-                            egui::Stroke::new(2.0, Color32::LIGHT_BLUE),
-                        );
-                    }
-                });
-
-                // Right: swatches
-                cols[1].vertical(|ui| {
-                    ui.label("Swatches");
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        if self.swatches.is_empty() {
-                            ui.weak("No swatches yet.");
-                            return;
-                        }
-                        let swatches = std::mem::take(&mut self.swatches);
-                        for sw in &swatches {
-                            self.draw_swatch_row(ui, sw);
-                        }
-                        self.swatches = swatches;
-                    });
-                });
-            });
+            ui.label("Image");
+            let avail = ui.available_size();
+            let (rect, _resp) = ui.allocate_exact_size(avail, egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 6.0, Color32::from_gray(28));
+            if let Some(tex) = &self.preview_tex {
+                let img_size = tex.size_vec2();
+                let scale =
+                    (rect.width() / img_size.x).min(rect.height() / img_size.y).min(1.0);
+                let draw = img_size * scale;
+                let r = egui::Rect::from_center_size(rect.center(), draw);
+                painter.image(
+                    tex.id(),
+                    r,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            } else {
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Drop an image here or click \"Open image…\"",
+                    egui::FontId::proportional(18.0),
+                    Color32::from_gray(160),
+                );
+            }
+            if hovering {
+                painter.rect_stroke(rect, 6.0, egui::Stroke::new(2.0, Color32::LIGHT_BLUE));
+            }
         });
 
         // Fade copy toast
@@ -575,6 +568,9 @@ impl eframe::App for App {
         }
 
         if self.busy {
+            ctx.request_repaint();
+        }
+        if ctx.input(|i| i.pointer.any_down()) {
             ctx.request_repaint();
         }
     }
