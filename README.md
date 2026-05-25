@@ -1,5 +1,7 @@
 # any-palette
 
+Built on top of [auto-palette](https://github.com/t28hub/auto-palette) for the color extraction and [egui](https://github.com/emilk/egui) for the UI.
+
 ![any-palette screenshot](assets/app.webp)
 
 A small desktop app that extracts color swatches from an image. Open or drag-drop a picture, tweak the algorithm and theme, hit **Extract**, and copy each swatch as `#RRGGBB`.
@@ -33,3 +35,11 @@ cargo run --release
 ## License
 
 MIT
+
+---
+
+_Wait for more..._
+
+Support me on PayPal
+
+[![Donate](https://img.shields.io/badge/Support-PayPal-blue.svg)](https://paypal.me/mohammadmoustafa1)
